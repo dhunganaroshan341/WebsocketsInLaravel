@@ -3,13 +3,11 @@
 namespace App\Listeners;
 
 use App\Events\HelloWorldEvent;
-use Exception;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
 
-
-class HelloWorldListener
+class AnotherHelloListener
 {
     /**
      * Create the event listener.
@@ -22,10 +20,8 @@ class HelloWorldListener
     /**
      * Handle the event.
      */
-
-    public function handle(HelloWorldEvent $event): void
+    public function handle(HelloWorldEvent $event)
     {
-        Log::info('HelloWorldListener executed!');
-        throw new Exception('Boom!');
+        Log::info('Another Listener Executed');
     }
 }
