@@ -26,6 +26,6 @@ class HelloWorldListener
     public function handle(HelloWorldEvent $event): void
     {
         Log::info('HelloWorldListener executed!');
-        throw new Exception('Boom!');
+        // throw new Exception('Boom!');
     }
 }
