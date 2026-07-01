@@ -1,59 +1,382 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel Reverb + Echo + WebSockets (Learning Notes)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## Goal
 
-## About Laravel
+Build a simple real-time communication system using:
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+* Laravel 13
+* Laravel Reverb
+* Laravel Echo
+* Pusher Protocol
+* Vite
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+The objective was **not** to build a chat application yet, but to understand how every component communicates internally.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+# Architecture
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```
+Browser
+    │
+    ▼
+Laravel Echo
+    │
+(Pusher Protocol)
+    │
+    ▼
+Laravel Reverb
+    ▲
+    │
+Laravel Application
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+The browser never communicates directly with Laravel after the WebSocket connection is established.
 
-## Contributing
+Instead:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```
+Browser <--WebSocket--> Reverb
 
-## Code of Conduct
+Laravel ----Broadcast Event----> Reverb
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Reverb then pushes messages to every subscribed browser.
 
-## Security Vulnerabilities
+---
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+# Installation
 
-## License
+Install Reverb
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
-# WebsocketsInLaravel
+```bash
+composer require laravel/reverb
+```
+
+Run the installer
+
+```bash
+php artisan reverb:install
+```
+
+Install frontend packages
+
+```bash
+npm install laravel-echo pusher-js
+```
+
+---
+
+# Environment Configuration
+
+```
+BROADCAST_CONNECTION=reverb
+
+QUEUE_CONNECTION=database
+
+REVERB_APP_ID=...
+
+REVERB_APP_KEY=...
+
+REVERB_APP_SECRET=...
+
+REVERB_HOST=localhost
+REVERB_PORT=8080
+REVERB_SCHEME=http
+
+VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
+VITE_REVERB_HOST="${REVERB_HOST}"
+VITE_REVERB_PORT="${REVERB_PORT}"
+VITE_REVERB_SCHEME="${REVERB_SCHEME}"
+```
+
+---
+
+# Echo Configuration
+
+Create
+
+```
+resources/js/echo.js
+```
+
+```javascript
+import Echo from "laravel-echo";
+import Pusher from "pusher-js";
+
+window.Pusher = Pusher;
+
+window.Echo = new Echo({
+    broadcaster: "reverb",
+
+    key: import.meta.env.VITE_REVERB_APP_KEY,
+
+    wsHost: import.meta.env.VITE_REVERB_HOST,
+
+    wsPort: import.meta.env.VITE_REVERB_PORT,
+
+    wssPort: import.meta.env.VITE_REVERB_PORT,
+
+    forceTLS: false,
+
+    enabledTransports: ["ws"],
+});
+```
+
+---
+
+# Load Echo
+
+Inside
+
+```
+resources/js/app.js
+```
+
+```javascript
+import "./echo";
+
+console.log("🚀 App started");
+
+window.Echo.channel("hello-world")
+    .listen("HelloWorldEvent", (event) => {
+        console.log("🎉 Event received!", event);
+    });
+```
+
+This imports Echo, opens the WebSocket connection and subscribes to the channel.
+
+---
+
+# Broadcast Event
+
+```php
+class HelloWorldEvent implements ShouldBroadcast
+{
+    use Dispatchable, InteractsWithSockets, SerializesModels;
+
+    public function broadcastOn(): array
+    {
+        return [
+            new Channel('hello-world'),
+        ];
+    }
+}
+```
+
+Important:
+
+The event **must implement** `ShouldBroadcast` (or `ShouldBroadcastNow`).
+
+Otherwise Laravel only dispatches a normal event and nothing is broadcast.
+
+---
+
+# Triggering the Event
+
+```php
+Route::get('/hello', function () {
+
+    event(new HelloWorldEvent());
+
+    return 'Done!';
+});
+```
+
+Visiting
+
+```
+/hello
+```
+
+dispatches the broadcast.
+
+---
+
+# Running Everything
+
+Terminal 1
+
+```bash
+php artisan serve
+```
+
+Terminal 2
+
+```bash
+php artisan reverb:start
+```
+
+Terminal 3
+
+```bash
+npm run dev
+```
+
+(Optional)
+
+Terminal 4
+
+```bash
+php artisan queue:work
+```
+
+---
+
+# Important Discovery
+
+Do **not** open `/hello` in the same browser tab.
+
+Why?
+
+Because `/hello` returns plain text.
+
+The browser destroys the current page, unloading JavaScript.
+
+This also destroys:
+
+```
+window.Echo
+```
+
+Instead:
+
+Keep
+
+```
+/
+```
+
+open in one tab.
+
+Open
+
+```
+/hello
+```
+
+in another tab.
+
+The first tab stays connected and receives the event.
+
+---
+
+# What Actually Happens
+
+```
+Browser
+
+↓
+
+app.js executes
+
+↓
+
+echo.js executes
+
+↓
+
+Echo object created
+
+↓
+
+Pusher protocol starts
+
+↓
+
+TCP Connection
+
+↓
+
+HTTP Upgrade Request
+
+↓
+
+101 Switching Protocols
+
+↓
+
+WebSocket Established
+
+↓
+
+Subscribe to hello-world
+
+↓
+
+Laravel Route
+
+↓
+
+event(new HelloWorldEvent())
+
+↓
+
+Broadcast Manager
+
+↓
+
+Reverb
+
+↓
+
+Find all subscribers of hello-world
+
+↓
+
+Push event to browser
+
+↓
+
+console.log("🎉 Event received!")
+```
+
+---
+
+# Things Learned
+
+* WebSockets are persistent TCP connections.
+* Reverb is a standalone WebSocket server.
+* Echo is a frontend client library.
+* Echo speaks the Pusher protocol.
+* Reverb understands the Pusher protocol.
+* Laravel broadcasts events to Reverb.
+* Reverb pushes messages to subscribed clients.
+* No HTTP polling is required after the WebSocket connection is established.
+
+---
+
+# Common Mistakes
+
+❌ Forgetting to import `echo.js`.
+
+❌ Forgetting to implement `ShouldBroadcast`.
+
+❌ Setting `BROADCAST_CONNECTION=log`.
+
+❌ Visiting `/hello` in the same browser tab.
+
+❌ Forgetting to run Reverb.
+
+❌ Forgetting to run Vite.
+
+❌ Forgetting the queue worker when using queued broadcasts.
+
+---
+
+# Next Topics
+
+* Public Channels
+* Private Channels
+* Presence Channels
+* Channel Authorization
+* routes/channels.php
+* Authentication over WebSockets
+* Broadcasting to specific users
+* Building a production-ready chat application
+* Typing indicators
+* Read receipts
+* Online/offline presence
+* Scaling Reverb with Redis
+* Multi-server deployments
+* Production architecture
