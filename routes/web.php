@@ -4,7 +4,7 @@ use App\Events\HelloWorldEvent;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use App\Events\MessageSent;
-use Illuminate\Http\Client\Request;
+use Illuminate\Http\Request;
 
 Route::get('/', function () {
     return view('welcome');
